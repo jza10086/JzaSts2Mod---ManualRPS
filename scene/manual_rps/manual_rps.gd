@@ -38,6 +38,10 @@ func set_network_context(local_net_id: int, local_role: String) -> void:
     _set_status("当前身份：%s (%d)" % [_local_role, _local_net_id])
 
 
+func set_expected_players(player_ids: Array) -> void:
+    _dbg("[目标玩家] %s" % str(player_ids))
+
+
 func _on_button_pressed(choice: int) -> void:
     _dbg("[发送] %s | 用户网络id: %d | 猜拳输入enum: %d" % [_local_role, _local_net_id, choice])
     if _send_bridge.is_valid():
@@ -48,6 +52,18 @@ func _on_button_pressed(choice: int) -> void:
 
 func receive_network_choice(peer_id: int, choice: int, peer_role: String = "远端") -> void:
     _dbg("[接收] %s | 用户网络id: %d | 猜拳输入enum: %d" % [peer_role, peer_id, choice])
+
+
+func on_choice_progress(collected: int, expected: int) -> void:
+    _set_status("已收集 %d/%d" % [collected, expected])
+
+
+func on_csharp_result_applied(winner_id: int, summary: String) -> void:
+    if winner_id == _local_net_id:
+        _set_status("你赢了！ " + summary)
+    else:
+        _set_status(summary)
+    _dbg("[结算] winner=%d summary=%s" % [winner_id, summary])
 
 
 func _set_status(text: String) -> void:

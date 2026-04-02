@@ -7,15 +7,37 @@ using HarmonyLib;
 using MegaCrit.Sts2.Core.Entities.Players;
 using MegaCrit.Sts2.Core.Entities.TreasureRelicPicking;
 using MegaCrit.Sts2.Core.Extensions;
-using MegaCrit.Sts2.Core.Map;
 using MegaCrit.Sts2.Core.Multiplayer.Game;
-using MegaCrit.Sts2.Core.Multiplayer.Messages.Game.Flavor;
+using MegaCrit.Sts2.Core.Multiplayer.Serialization;
+using MegaCrit.Sts2.Core.Multiplayer.Transport;
 using MegaCrit.Sts2.Core.Models;
 using MegaCrit.Sts2.Core.Nodes;
+using MegaCrit.Sts2.Core.Logging;
 using MegaCrit.Sts2.Core.Random;
 using MegaCrit.Sts2.Core.Runs;
 
 namespace Test.Scripts;
+
+public struct ManualRpsChoiceMessage : INetMessage, IPacketSerializable
+{
+    public int choice;
+
+    public bool ShouldBroadcast => true;
+
+    public NetTransferMode Mode => NetTransferMode.Reliable;
+
+    public MegaCrit.Sts2.Core.Logging.LogLevel LogLevel => MegaCrit.Sts2.Core.Logging.LogLevel.VeryDebug;
+
+    public void Serialize(PacketWriter writer)
+    {
+        writer.WriteInt(choice, 8);
+    }
+
+    public void Deserialize(PacketReader reader)
+    {
+        choice = reader.ReadInt(8);
+    }
+}
 
 [HarmonyPatch(typeof(TreasureRoomRelicSynchronizer), "AwardRelics")]
 public static class ManualRpsPatch
@@ -30,6 +52,14 @@ public static class ManualRpsPatch
 
     private static Node? _currentUi;
     private static bool _isMessageHandlerRegistered;
+    private static TreasureRoomRelicSynchronizer? _currentSynchronizer;
+    private static ManualRpsConflictContext? _activeConflict;
+    private static bool _isResultApplied;
+    private static readonly Dictionary<ulong, RelicPickingFightMove> RoundChoices = new Dictionary<ulong, RelicPickingFightMove>();
+    private static readonly HashSet<ulong> ExpectedPlayerIds = new HashSet<ulong>();
+    private static List<Player>? _snapshotPlayers;
+    private static List<RelicModel>? _snapshotRelics;
+    private static Dictionary<int, List<Player>>? _snapshotVoteGroups;
 
     // 供后续 UI/网络流程调用的冲突上下文。
     public sealed class ManualRpsConflictContext
@@ -44,6 +74,12 @@ public static class ManualRpsPatch
     public static bool Prefix(TreasureRoomRelicSynchronizer __instance)
     {
         GD.Print("JzaSts2Mod: 成功拦截 AwardRelics，正在弹出 UI");
+        _currentSynchronizer = __instance;
+        _isResultApplied = false;
+        CaptureAwardSnapshot(__instance);
+        _activeConflict = CollectManualRpsConflicts(__instance).FirstOrDefault();
+        ResetRoundState();
+
         SafeInstantiateUI();
         EnsureNetworkHandlerRegistered();
         InjectUiBridgeAndContext();
@@ -82,10 +118,10 @@ public static class ManualRpsPatch
         INetGameService netService = RunManager.Instance.NetService;
         if (_isMessageHandlerRegistered)
         {
-            netService.UnregisterMessageHandler<MapPingMessage>(OnMapPingReceived);
+            netService.UnregisterMessageHandler<ManualRpsChoiceMessage>(OnChoiceReceived);
         }
 
-        netService.RegisterMessageHandler<MapPingMessage>(OnMapPingReceived);
+        netService.RegisterMessageHandler<ManualRpsChoiceMessage>(OnChoiceReceived);
         _isMessageHandlerRegistered = true;
     }
 
@@ -106,6 +142,9 @@ public static class ManualRpsPatch
 
         _currentUi.Call("inject_csharp_bridge", Callable.From<int>(SendRpsChoiceFromUi));
         _currentUi.Call("set_network_context", (long)netService.NetId, role);
+
+        Godot.Collections.Array<int> expectedPlayers = BuildExpectedPlayerIds();
+        _currentUi.Call("set_expected_players", expectedPlayers);
     }
 
     private static void SendRpsChoiceFromUi(int choice)
@@ -114,25 +153,83 @@ public static class ManualRpsPatch
         ulong localNetId = netService.NetId;
         GD.Print($"JzaSts2Mod: [发送] role={netService.Type} netId={localNetId} choice={choice}");
 
-        // 使用现有可序列化消息承载一个 int，真实发送者 ID 以 senderId 为准。
-        MapPingMessage message = new MapPingMessage
+        RoundChoices[localNetId] = ToFightMove(choice);
+        NotifyUiChoice(localNetId, choice, "本机");
+        NotifyUiProgress();
+
+        // 使用 Mod 自定义消息承载出拳，完全绕开游戏原生 Reaction/Map 链路。
+        ManualRpsChoiceMessage message = new ManualRpsChoiceMessage
         {
-            coord = new MapCoord(choice, 0)
+            choice = choice
         };
 
         netService.SendMessage(message);
+        TryFinalizeOnHost();
     }
 
-    private static void OnMapPingReceived(MapPingMessage message, ulong senderId)
+    private static void OnChoiceReceived(ManualRpsChoiceMessage message, ulong senderId)
     {
         if (_currentUi == null || !GodotObject.IsInstanceValid(_currentUi))
         {
             return;
         }
 
-        int choice = message.coord.col;
+        int choice = message.choice;
         string role = senderId == RunManager.Instance.NetService.NetId ? "本机回环" : "远端";
-        _currentUi.Call("receive_network_choice", (long)senderId, choice, role);
+        if (!RoundChoices.TryGetValue(senderId, out RelicPickingFightMove existing) || existing != ToFightMove(choice))
+        {
+            RoundChoices[senderId] = ToFightMove(choice);
+            NotifyUiChoice(senderId, choice, role);
+            NotifyUiProgress();
+            TryFinalizeOnHost();
+        }
+    }
+
+    private static void TryFinalizeOnHost()
+    {
+        if (_isResultApplied)
+        {
+            return;
+        }
+
+        if (RunManager.Instance.NetService.Type != NetGameType.Host)
+        {
+            return;
+        }
+
+        if (ExpectedPlayerIds.Count == 0)
+        {
+            return;
+        }
+
+        if (ExpectedPlayerIds.Any(id => !RoundChoices.ContainsKey(id)))
+        {
+            return;
+        }
+
+        if (_currentSynchronizer == null || _activeConflict == null)
+        {
+            GD.Print("JzaSts2Mod: 当前无有效冲突上下文，无法应用手动猜拳结果");
+            return;
+        }
+
+        RelicPickingResult manualResult = BuildManualFightResult(
+            _activeConflict,
+            new List<IReadOnlyDictionary<ulong, RelicPickingFightMove>> { new Dictionary<ulong, RelicPickingFightMove>(RoundChoices) });
+
+        Dictionary<int, RelicPickingResult> resultMap = new Dictionary<int, RelicPickingResult>
+        {
+            [_activeConflict.RelicIndex] = manualResult
+        };
+
+        CompleteManualRpsAward(_currentSynchronizer, resultMap);
+        _isResultApplied = true;
+
+        if (_currentUi != null && GodotObject.IsInstanceValid(_currentUi))
+        {
+            _currentUi.Call("on_csharp_result_applied", (long)manualResult.player.NetId,
+                $"结算完成：玩家 {manualResult.player.NetId} 获得遗物");
+        }
     }
 
     // API 1: 收集当前宝箱中需要手动猜拳的冲突组（每个遗物一组）。
@@ -236,17 +333,16 @@ public static class ManualRpsPatch
         TreasureRoomRelicSynchronizer synchronizer,
         IReadOnlyDictionary<int, RelicPickingResult> conflictResultsByRelicIndex)
     {
-        if (synchronizer.CurrentRelics == null)
+        if (_snapshotPlayers == null || _snapshotRelics == null || _snapshotVoteGroups == null)
         {
+            GD.Print("JzaSts2Mod: 奖励快照缺失，无法完成手动结算");
             return;
         }
 
-        IPlayerCollection playerCollection = (IPlayerCollection)PlayerCollectionField.GetValue(synchronizer)!;
         Rng rng = (Rng)RngField.GetValue(synchronizer)!;
-        List<Player> players = playerCollection.Players.ToList();
-        List<RelicModel> relics = synchronizer.CurrentRelics.ToList();
-
-        Dictionary<int, List<Player>> voteGroups = BuildVoteGroups(synchronizer, players, relics.Count);
+        List<Player> players = _snapshotPlayers;
+        List<RelicModel> relics = _snapshotRelics;
+        Dictionary<int, List<Player>> voteGroups = _snapshotVoteGroups;
 
         List<RelicPickingResult> results = new List<RelicPickingResult>();
         List<RelicModel> leftovers = new List<RelicModel>();
@@ -301,7 +397,7 @@ public static class ManualRpsPatch
             relicsAwarded(results);
         }
 
-        EndRelicVotingMethod.Invoke(synchronizer, null);
+        ClearAwardSnapshot();
     }
 
     public static RelicPickingFightMove ToFightMove(int choice)
@@ -313,6 +409,80 @@ public static class ManualRpsPatch
             3 => RelicPickingFightMove.Scissors,
             _ => RelicPickingFightMove.Rock
         };
+    }
+
+    private static Godot.Collections.Array<int> BuildExpectedPlayerIds()
+    {
+        Godot.Collections.Array<int> ids = new Godot.Collections.Array<int>();
+        ExpectedPlayerIds.Clear();
+
+        if (_activeConflict != null)
+        {
+            foreach (Player player in _activeConflict.Players)
+            {
+                ids.Add((int)player.NetId);
+                ExpectedPlayerIds.Add(player.NetId);
+            }
+
+            return ids;
+        }
+
+        if (_currentSynchronizer != null)
+        {
+            IPlayerCollection playerCollection = (IPlayerCollection)PlayerCollectionField.GetValue(_currentSynchronizer)!;
+            foreach (Player player in playerCollection.Players)
+            {
+                ids.Add((int)player.NetId);
+                ExpectedPlayerIds.Add(player.NetId);
+            }
+        }
+
+        return ids;
+    }
+
+    private static void NotifyUiChoice(ulong peerId, int choice, string role)
+    {
+        if (_currentUi != null && GodotObject.IsInstanceValid(_currentUi))
+        {
+            _currentUi.Call("receive_network_choice", (long)peerId, choice, role);
+        }
+    }
+
+    private static void NotifyUiProgress()
+    {
+        if (_currentUi != null && GodotObject.IsInstanceValid(_currentUi))
+        {
+            _currentUi.Call("on_choice_progress", RoundChoices.Count, ExpectedPlayerIds.Count);
+        }
+    }
+
+    private static void ResetRoundState()
+    {
+        RoundChoices.Clear();
+        ExpectedPlayerIds.Clear();
+    }
+
+    private static void CaptureAwardSnapshot(TreasureRoomRelicSynchronizer synchronizer)
+    {
+        if (synchronizer.CurrentRelics == null)
+        {
+            _snapshotPlayers = null;
+            _snapshotRelics = null;
+            _snapshotVoteGroups = null;
+            return;
+        }
+
+        IPlayerCollection playerCollection = (IPlayerCollection)PlayerCollectionField.GetValue(synchronizer)!;
+        _snapshotPlayers = playerCollection.Players.ToList();
+        _snapshotRelics = synchronizer.CurrentRelics.ToList();
+        _snapshotVoteGroups = BuildVoteGroups(synchronizer, _snapshotPlayers, _snapshotRelics.Count);
+    }
+
+    private static void ClearAwardSnapshot()
+    {
+        _snapshotPlayers = null;
+        _snapshotRelics = null;
+        _snapshotVoteGroups = null;
     }
 
     private static Dictionary<int, List<Player>> BuildVoteGroups(
