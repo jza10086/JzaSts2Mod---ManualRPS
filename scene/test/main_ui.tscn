@@ -1,0 +1,52 @@
+[gd_scene load_steps=3 format=3 uid="uid://b4p8atwjkglji"]
+
+[ext_resource type="Script" uid="uid://ci8ol5fdptwp" path="res://scene/test/main_ui.gd" id="1_xqdl1"]
+[ext_resource type="Theme" uid="uid://c8khivdumn2yd" path="res://scene/test/main_ui.tres" id="2_yu3bt"]
+
+[node name="MainUI" type="CanvasLayer" node_paths=PackedStringArray("open_button", "popup_panel", "close_button")]
+script = ExtResource("1_xqdl1")
+open_button = NodePath("OpenButton")
+popup_panel = NodePath("MainControl")
+close_button = NodePath("MainControl/CloseButton")
+
+[node name="MainControl" type="Control" parent="."]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme = ExtResource("2_yu3bt")
+
+[node name="ColorRect" type="ColorRect" parent="MainControl"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+color = Color(0.70380783, 0.70380783, 0.70380783, 1)
+
+[node name="CloseButton" type="Button" parent="MainControl"]
+layout_mode = 1
+anchors_preset = 3
+anchor_left = 1.0
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -168.0
+offset_top = -86.0
+grow_horizontal = 0
+grow_vertical = 0
+text = "测试关闭按钮"
+
+[node name="OpenButton" type="Button" parent="."]
+anchors_preset = 4
+anchor_top = 0.5
+anchor_bottom = 0.5
+offset_top = -26.0
+offset_right = 134.0
+offset_bottom = 26.0
+grow_vertical = 2
+theme = ExtResource("2_yu3bt")
+text = "测试开启按钮"
