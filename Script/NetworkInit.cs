@@ -26,7 +26,7 @@ public static class NetworkInit
 
 	private static INetGameService? _boundNetService;
 
-	private static readonly MessageHandlerDelegate<JzaSts2ModTextNetMessage> TextMessageHandler = OnTextMessageReceived;
+	private static readonly MessageHandlerDelegate<JzaSts2MultiplayerFrameworkTextNetMessage> TextMessageHandler = OnTextMessageReceived;
 
 	/// <summary>
 	/// 客机向主机发送一条完整 JSON 报文。
@@ -41,7 +41,7 @@ public static class NetworkInit
 			return false;
 		}
 
-		netService.SendMessage(new JzaSts2ModTextNetMessage
+		netService.SendMessage(new JzaSts2MultiplayerFrameworkTextNetMessage
 		{
 			payload = packetJson ?? string.Empty
 		});
@@ -64,7 +64,7 @@ public static class NetworkInit
 		}
 
 		string normalizedPayload = packetJson ?? string.Empty;
-		JzaSts2ModTextNetMessage message = new JzaSts2ModTextNetMessage
+		JzaSts2MultiplayerFrameworkTextNetMessage message = new JzaSts2MultiplayerFrameworkTextNetMessage
 		{
 			payload = normalizedPayload
 		};
@@ -96,7 +96,7 @@ public static class NetworkInit
 			return false;
 		}
 
-		netService.SendMessage(new JzaSts2ModTextNetMessage
+		netService.SendMessage(new JzaSts2MultiplayerFrameworkTextNetMessage
 		{
 			payload = packetJson ?? string.Empty
 		}, targetPeerId);
@@ -215,7 +215,7 @@ public static class NetworkInit
 	/// </summary>
 	/// <param name="message">文本消息。</param>
 	/// <param name="senderId">底层发送者网络 ID。</param>
-	private static void OnTextMessageReceived(JzaSts2ModTextNetMessage message, ulong senderId)
+	private static void OnTextMessageReceived(JzaSts2MultiplayerFrameworkTextNetMessage message, ulong senderId)
 	{
 		_ = senderId;
 		ForwardPacketToNetworkRouter(message.payload ?? string.Empty);
@@ -370,7 +370,7 @@ public static class NetworkInit
 /// <summary>
 /// 自定义字符串网络消息。
 /// </summary>
-public struct JzaSts2ModTextNetMessage : INetMessage
+public struct JzaSts2MultiplayerFrameworkTextNetMessage : INetMessage
 {
 	public string payload;
 
@@ -404,6 +404,6 @@ public struct JzaSts2ModTextNetMessage : INetMessage
 	/// <returns>消息字符串。</returns>
 	public override readonly string ToString()
 	{
-		return $"JzaSts2ModTextNetMessage {payload}";
+		return $"JzaSts2MultiplayerFrameworkTextNetMessage {payload}";
 	}
 }

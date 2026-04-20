@@ -20,7 +20,7 @@ public class ModInit
 	private static readonly string[] NetworkRouterScriptPathCandidates =
 	[
 		"res://godot_script/network_router.gd",
-		"res://mods/JzaSts2Mod/godot_script/network_router.gd"
+		"res://mods/JzaSts2MultiplayerFramework/godot_script/network_router.gd"
 	];
 
 	private static bool _networkRouterInjected;
@@ -34,13 +34,13 @@ public class ModInit
 	{
 		// 打patch（即修改游戏代码的功能）用
 		// 传入参数随意，只要不和其他人撞车即可
-		var harmony = new Harmony("JzaSts2Mod");
+		var harmony = new Harmony("JzaSts2MultiplayerFramework");
 		harmony.PatchAll();
 		// 使得tscn可以加载自定义脚本
 		ScriptManagerBridge.LookupScriptsInAssembly(typeof(ModInit).Assembly);
 		EnsureNetworkInitBridgeInjected();
 		EnsureNetworkRouterSingletonInjected();
-		Log.Debug("JzaSts2Mod:Mod initialized!");
+		Log.Debug("JzaSts2MultiplayerFramework:Mod initialized!");
 
 	}
 
@@ -62,7 +62,7 @@ public class ModInit
 			}
 			else
 			{
-				Log.Error("JzaSts2Mod: failed to inject NetworkRouter singleton because SceneTree root is unavailable.");
+				Log.Error("JzaSts2MultiplayerFramework: failed to inject NetworkRouter singleton because SceneTree root is unavailable.");
 			}
 			return;
 		}
@@ -71,14 +71,14 @@ public class ModInit
 		if (existingNode != null)
 		{
 			_networkRouterInjected = true;
-			Log.Debug("JzaSts2Mod: NetworkRouter singleton already exists.");
+			Log.Debug("JzaSts2MultiplayerFramework: NetworkRouter singleton already exists.");
 			return;
 		}
 
 		Script? routerScript = LoadNetworkRouterScript();
 		if (routerScript == null)
 		{
-			Log.Error("JzaSts2Mod: failed to inject NetworkRouter singleton because script resource is missing.");
+			Log.Error("JzaSts2MultiplayerFramework: failed to inject NetworkRouter singleton because script resource is missing.");
 			return;
 		}
 
@@ -91,11 +91,11 @@ public class ModInit
 
 		if (!networkRouterNode.HasMethod(NetworkRouterReceiveMethod))
 		{
-			Log.Error("JzaSts2Mod: NetworkRouter singleton injected but on_packet_received was not found.");
+			Log.Error("JzaSts2MultiplayerFramework: NetworkRouter singleton injected but on_packet_received was not found.");
 		}
 
 		_networkRouterInjected = true;
-		Log.Debug("JzaSts2Mod: NetworkRouter singleton injection queued for /root/NetworkRouter.");
+		Log.Debug("JzaSts2MultiplayerFramework: NetworkRouter singleton injection queued for /root/NetworkRouter.");
 	}
 
 	private static void EnsureNetworkInitBridgeInjected()
@@ -116,7 +116,7 @@ public class ModInit
 			}
 			else
 			{
-				Log.Error("JzaSts2Mod: failed to inject NetworkInitBridge because SceneTree root is unavailable.");
+				Log.Error("JzaSts2MultiplayerFramework: failed to inject NetworkInitBridge because SceneTree root is unavailable.");
 			}
 			return;
 		}
@@ -125,7 +125,7 @@ public class ModInit
 		if (existingNode != null)
 		{
 			_networkInitBridgeInjected = true;
-			Log.Debug("JzaSts2Mod: NetworkInitBridge already exists.");
+			Log.Debug("JzaSts2MultiplayerFramework: NetworkInitBridge already exists.");
 			return;
 		}
 
@@ -136,7 +136,7 @@ public class ModInit
 		root.CallDeferred(Node.MethodName.AddChild, bridgeNode);
 
 		_networkInitBridgeInjected = true;
-		Log.Debug("JzaSts2Mod: NetworkInitBridge injection queued for /root/NetworkInitBridge.");
+		Log.Debug("JzaSts2MultiplayerFramework: NetworkInitBridge injection queued for /root/NetworkInitBridge.");
 	}
 
 	private static Script? LoadNetworkRouterScript()

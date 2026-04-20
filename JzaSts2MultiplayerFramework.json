@@ -1,0 +1,11 @@
+{
+  "id": "JzaSts2MultiplayerFramework",         
+  "name": "Jza的杀戮尖塔多人联机框架",
+  "author": "jza",
+  "description": "用于gdscript的多人联机框架，通过C#进行网络通信。",
+  "version": "0.1.0",
+  "has_pck": true,      
+  "has_dll": true,      
+  "dependencies": [],    
+  "affects_gameplay": false
+}
