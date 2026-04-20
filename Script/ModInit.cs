@@ -71,7 +71,6 @@ public class ModInit
 		if (existingNode != null)
 		{
 			_networkRouterInjected = true;
-			GD.PushWarning("JzaSts2Mod: NetworkRouter singleton already exists at /root/NetworkRouter.");
 			Log.Debug("JzaSts2Mod: NetworkRouter singleton already exists.");
 			return;
 		}
@@ -96,7 +95,6 @@ public class ModInit
 		}
 
 		_networkRouterInjected = true;
-		GD.PushWarning("JzaSts2Mod: NetworkRouter singleton injection queued for /root/NetworkRouter.");
 		Log.Debug("JzaSts2Mod: NetworkRouter singleton injection queued for /root/NetworkRouter.");
 	}
 

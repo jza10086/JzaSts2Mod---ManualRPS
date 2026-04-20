@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Text.Json;
 using Godot;
 using HarmonyLib;
 using MegaCrit.Sts2.Core.Entities.Multiplayer;
@@ -235,6 +237,26 @@ public static class NetworkInit
 		networkRouter.Call(NetworkRouterReceiveMethod, packetJson ?? string.Empty);
 	}
 
+	private static void ForwardConnectionDebugEvent(string action, ulong networkId)
+	{
+		var payload = new Dictionary<string, object?>
+		{
+			["event"] = action,
+			["network_id"] = networkId
+		};
+
+		var packet = new Dictionary<string, object?>
+		{
+			["action"] = action,
+			["sender_id"] = 0,
+			["sender_ids"] = new[] { networkId },
+			["timestamp"] = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
+			["payload"] = payload
+		};
+
+		ForwardPacketToNetworkRouter(JsonSerializer.Serialize(packet));
+	}
+
 	[HarmonyPatch(typeof(NetHostGameService))]
 	private static class NetHostGameServicePatches
 	{
@@ -248,6 +270,7 @@ public static class NetworkInit
 			if (!__result.HasValue && __instance.IsConnected)
 			{
 				SetActiveService(__instance);
+				ForwardConnectionDebugEvent("on_connected", __instance.NetId);
 			}
 		}
 
@@ -271,7 +294,27 @@ public static class NetworkInit
 		[HarmonyPrefix]
 		private static void OnDisconnectedPrefix(NetHostGameService __instance)
 		{
+			if (__instance.IsConnected)
+			{
+				ForwardConnectionDebugEvent("on_disconnected", __instance.NetId);
+			}
+
 			ClearServiceIfMatches(__instance);
+		}
+
+		[HarmonyPatch(nameof(NetHostGameService.OnPeerConnected))]
+		[HarmonyPostfix]
+		private static void OnPeerConnectedPostfix(ulong peerId)
+		{
+			ForwardConnectionDebugEvent("on_connected", peerId);
+		}
+
+		[HarmonyPatch(nameof(NetHostGameService.OnPeerDisconnected))]
+		[HarmonyPrefix]
+		private static void OnPeerDisconnectedPrefix(ulong peerId, NetErrorInfo info)
+		{
+			_ = info;
+			ForwardConnectionDebugEvent("on_disconnected", peerId);
 		}
 	}
 
@@ -288,6 +331,7 @@ public static class NetworkInit
 			if (__instance.IsConnected)
 			{
 				SetActiveService(__instance);
+				ForwardConnectionDebugEvent("on_connected", __instance.NetId);
 			}
 		}
 
@@ -311,6 +355,12 @@ public static class NetworkInit
 		[HarmonyPrefix]
 		private static void OnDisconnectedFromHostPrefix(NetClientGameService __instance)
 		{
+			if (__instance.IsConnected)
+			{
+				ForwardConnectionDebugEvent("on_disconnected", __instance.NetId);
+				ForwardConnectionDebugEvent("on_disconnected", __instance.HostNetId);
+			}
+
 			ClearServiceIfMatches(__instance);
 		}
 	}

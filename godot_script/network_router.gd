@@ -2,7 +2,6 @@ extends Node
 
 signal packet_received(action: String, packet: Dictionary, sender_ids: Array)
 
-const _NETWORK_INIT_CLASS_CANDIDATES: Array[StringName] = [&"NetworkInit", &"Test.Scripts.NetworkInit"]
 const _NETWORK_INIT_BRIDGE_NODE_PATH: String = "/root/NetworkInitBridge"
 const _SEND_TO_HOST_METHOD_CANDIDATES: Array[StringName] = [&"SendPacketToHost", &"send_packet_to_host"]
 const _BROADCAST_METHOD_CANDIDATES: Array[StringName] = [&"BroadcastPacketFromHost", &"broadcast_packet_from_host"]
@@ -22,6 +21,8 @@ func on_packet_received(packet_json: String) -> void:
 	var sender_ids: Array = _extract_sender_ids(packet)
 	if sender_ids.size() > 0:
 		_last_host_sender_id = int(sender_ids[0])
+
+	_print_membership_status(action, packet, sender_ids)
 
 	packet_received.emit(action, packet, sender_ids)
 
@@ -78,19 +79,40 @@ func _extract_sender_ids(packet: Dictionary) -> Array:
 	return sender_ids
 
 
+func _print_membership_status(action: String, packet: Dictionary, sender_ids: Array) -> void:
+	var status_text := ""
+	match action:
+		"on_connected":
+			status_text = "加入了"
+		"on_disconnected":
+			status_text = "离开了"
+		_:
+			return
+
+	var network_id_text := _resolve_network_id_text(packet, sender_ids)
+	print_rich("[color=green][%s] %s[/color]" % [network_id_text, status_text])
+
+
+func _resolve_network_id_text(packet: Dictionary, sender_ids: Array) -> String:
+	if sender_ids.size() > 0:
+		return str(int(sender_ids[0]))
+
+	var payload: Variant = packet.get("payload", null)
+	if payload is Dictionary:
+		var payload_dict := payload as Dictionary
+		if payload_dict.has("network_id"):
+			return str(int(payload_dict["network_id"]))
+
+	if packet.has("sender_id"):
+		return str(int(packet["sender_id"]))
+
+	if packet.has("network_id"):
+		return str(int(packet["network_id"]))
+
+	return "未知网络id"
+
+
 func _call_network_init(method_candidates: Array[StringName], args: Array) -> Variant:
-	for target_class in _NETWORK_INIT_CLASS_CANDIDATES:
-		if not ClassDB.class_exists(target_class):
-			continue
-
-		for method_name in method_candidates:
-			if not ClassDB.class_has_method(target_class, method_name):
-				continue
-
-			var call_args: Array = [target_class, method_name]
-			call_args.append_array(args)
-			return Callable(ClassDB, "class_call_static").callv(call_args)
-
 	var bridge_node := get_node_or_null(_NETWORK_INIT_BRIDGE_NODE_PATH)
 	if bridge_node != null:
 		for method_name in method_candidates:
@@ -98,5 +120,5 @@ func _call_network_init(method_candidates: Array[StringName], args: Array) -> Va
 				continue
 			return bridge_node.callv(method_name, args)
 
-	push_warning("NetworkRouter 无法调用 NetworkInit（静态或桥接节点），请确认初始化注入成功。")
+	push_warning("NetworkRouter 无法调用 NetworkInitBridge 节点，请确认初始化注入成功。")
 	return null
