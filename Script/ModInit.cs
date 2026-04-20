@@ -11,6 +11,7 @@ namespace Test.Scripts;
 public class ModInit
 {
 	private const string NetworkRouterNodeName = "NetworkRouter";
+	private const string NetworkInitBridgeNodeName = "NetworkInitBridge";
 
 	private const int MaxInjectAttempts = 30;
 
@@ -23,8 +24,10 @@ public class ModInit
 	];
 
 	private static bool _networkRouterInjected;
+	private static bool _networkInitBridgeInjected;
 
 	private static int _injectAttempts;
+	private static int _bridgeInjectAttempts;
 
 	// 初始化函数
 	public static void Init()
@@ -35,6 +38,7 @@ public class ModInit
 		harmony.PatchAll();
 		// 使得tscn可以加载自定义脚本
 		ScriptManagerBridge.LookupScriptsInAssembly(typeof(ModInit).Assembly);
+		EnsureNetworkInitBridgeInjected();
 		EnsureNetworkRouterSingletonInjected();
 		Log.Debug("JzaSts2Mod:Mod initialized!");
 
@@ -94,6 +98,47 @@ public class ModInit
 		_networkRouterInjected = true;
 		GD.PushWarning("JzaSts2Mod: NetworkRouter singleton injection queued for /root/NetworkRouter.");
 		Log.Debug("JzaSts2Mod: NetworkRouter singleton injection queued for /root/NetworkRouter.");
+	}
+
+	private static void EnsureNetworkInitBridgeInjected()
+	{
+		if (_networkInitBridgeInjected)
+		{
+			return;
+		}
+
+		SceneTree? sceneTree = Engine.GetMainLoop() as SceneTree;
+		Node? root = sceneTree?.Root;
+		if (root == null)
+		{
+			if (_bridgeInjectAttempts < MaxInjectAttempts)
+			{
+				_bridgeInjectAttempts++;
+				Callable.From(EnsureNetworkInitBridgeInjected).CallDeferred();
+			}
+			else
+			{
+				Log.Error("JzaSts2Mod: failed to inject NetworkInitBridge because SceneTree root is unavailable.");
+			}
+			return;
+		}
+
+		Node? existingNode = root.GetNodeOrNull<Node>(NetworkInitBridgeNodeName);
+		if (existingNode != null)
+		{
+			_networkInitBridgeInjected = true;
+			Log.Debug("JzaSts2Mod: NetworkInitBridge already exists.");
+			return;
+		}
+
+		Node bridgeNode = new NetworkInitBridge
+		{
+			Name = NetworkInitBridgeNodeName
+		};
+		root.CallDeferred(Node.MethodName.AddChild, bridgeNode);
+
+		_networkInitBridgeInjected = true;
+		Log.Debug("JzaSts2Mod: NetworkInitBridge injection queued for /root/NetworkInitBridge.");
 	}
 
 	private static Script? LoadNetworkRouterScript()

@@ -3,6 +3,7 @@ extends Node
 signal packet_received(action: String, packet: Dictionary, sender_ids: Array)
 
 const _NETWORK_INIT_CLASS_CANDIDATES: Array[StringName] = [&"NetworkInit", &"Test.Scripts.NetworkInit"]
+const _NETWORK_INIT_BRIDGE_NODE_PATH: String = "/root/NetworkInitBridge"
 const _SEND_TO_HOST_METHOD_CANDIDATES: Array[StringName] = [&"SendPacketToHost", &"send_packet_to_host"]
 const _BROADCAST_METHOD_CANDIDATES: Array[StringName] = [&"BroadcastPacketFromHost", &"broadcast_packet_from_host"]
 const _TARGETED_FORWARD_METHOD_CANDIDATES: Array[StringName] = [&"SendPacketToClientFromHost", &"send_packet_to_client_from_host"]
@@ -90,5 +91,12 @@ func _call_network_init(method_candidates: Array[StringName], args: Array) -> Va
 			call_args.append_array(args)
 			return Callable(ClassDB, "class_call_static").callv(call_args)
 
-	push_warning("NetworkRouter 无法调用 NetworkInit 静态方法，请确认 C# 类已通过 ScriptManagerBridge 注册。")
+	var bridge_node := get_node_or_null(_NETWORK_INIT_BRIDGE_NODE_PATH)
+	if bridge_node != null:
+		for method_name in method_candidates:
+			if not bridge_node.has_method(method_name):
+				continue
+			return bridge_node.callv(method_name, args)
+
+	push_warning("NetworkRouter 无法调用 NetworkInit（静态或桥接节点），请确认初始化注入成功。")
 	return null
